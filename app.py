@@ -1,6 +1,7 @@
 from idlelib.window import ListedToplevel
 
 import streamlit as st
+import requests
 st.set_page_config(page_title="Zeus AI", layout="wide")
 
 st.title("Zeus, our Free AI on the Web")
