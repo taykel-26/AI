@@ -31,7 +31,7 @@ if prompt:
     with st.chat_message("User"):
         st.write(f"{prompt}")
     with st.chat_message("Chat Bot"):
-        if prompt.lower() == "Cat Fact":
+        if prompt.lower() == "cat fact":
             r = requests.get("https://catfact.ninja/fact")
             fact = r.json()["fact"]
             st.write(f"Fact: {fact}")
