@@ -2,3 +2,4 @@ streamlit
 requests
 dotenv
 openai
+chromadb
