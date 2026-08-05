@@ -65,13 +65,13 @@ with st.sidebar:
 
     if st.button("Clear out"):
         st.session_state.messages = []
-        st.rerun
+        st.rerun()
     if st.button("Forget memory"):
         db.delete_collection("zeus_chat")
-        st.rerun
+        st.rerun()
     if st.button("Forget all documents"):
         db.delete_collection("zeus")
-        st.rerun
+        st.rerun()
 for old in st.session_state.messages:
     with st.chat_message(old["role"]):
         st.markdown(old["content"])
