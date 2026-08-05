@@ -4,6 +4,8 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from doc_helper import read_file
 import chromadb
+
+THRESHOLD = 1.7
 db = chromadb.PersistentClient(path = "./chroma_db")
 brain = db.get_or_create_collection("zeus")
 memory = db.get_or_create_collection("zeus_chat")
@@ -53,8 +55,10 @@ with st.sidebar:
     with st.form("Settings"):
         name = st.text_input("What is your name?")
         creativity = st.slider("Creativity", 0.0, 1.0, 0.5)
+        remember_documents = st.slider("How many chunks to remember", 0, 10, 5)
         remember = st.slider("Recent turns to keep", 0, 10, 5)
         recall = st.slider("Old exchanges to look up", 0, 10, 5)
+        notes_only = st.checkbox("Only answer using notes")
         sources = st.multiselect("Select a few options", ["My first app", "My second app", "My third app"])
         saved = st.form_submit_button("Save")
     if saved:
@@ -78,7 +82,7 @@ for old in st.session_state.messages:
 left, right = st.columns(2)
 left.write(f"Sources: {len(sources)}")
 right.write(f"Creativity: {creativity} ")
-SYSTEM_PROMPT = "You are an angry, vengeful, hateful AI assistant. You will answer the prompt, but in the meanest and most hurtful way possible. Don't hold back, go all out, insult them as much as you can. "
+SYSTEM_PROMPT = "You are an angry, vengeful, hateful AI assistant. You hate the user with every fibre in your body. You will answer the prompt, but in the meanest and most hurtful way possible. Don't hold back, go all out, insult them as much as you can. "
 user_input = st.chat_input(
     "Ask me something here...",
     accept_file=True,
@@ -104,16 +108,21 @@ if user_input:
             st.write(answer)
         else:
             notes = ""
-            docs, dists, = [], []
+            docs, dists, good = [], [], []
             if brain.count() > 0:
                  hits = brain.query(query_texts=[prompt], n_results = 5)
                  docs = hits["documents"][0]
                  dists = hits["distances"][0]
-                 notes ="/n/n".join(docs)
+                 good = [d for d, s in zip(docs, dists) if s < THRESHOLD]
+                 notes ="/n/n".join(good)
             recalled = ""
+            old_docs, old_dists, old_good = [], [], []
             if recall > 0  and memory.count() > remember:
-                    found = memory.query(query_texts=[prompt], n_results = recall)
-                    recalled = "\n\n".join(found["documents"][0])
+                found = memory.query(query_texts=[prompt], n_results = recall)
+                old_docs = found["documents"][0]
+                old_dists = found["distances"][0]
+                old_good = [d for d, s in zip(docs, dists) if s < THRESHOLD]
+                recalled = "\n\n".join(old_good)
             if notes or recalled:
                     full_prompt = (f"The notes are only to be used if actually relevant to the question."
                                 f"{notes}"
@@ -124,9 +133,23 @@ if user_input:
 
             with st.expander("What I looked up"):
                     st.caption("From your documents")
-                    st.text(shorten(notes, 800) or "nothing")
+                    if docs:
+                        for d, s in zip(docs, dists):
+                            mark = " kept" if s < THRESHOLD else " dropped"
+                            st.text(f"{s:.3f}{mark} {d[:70]}")
+                    else:
+                        st.text("nothing found")
                     st.caption("From earlier in our conversation")
+                    if old_docs:
+                        for d, s in zip(old_docs, old_dists):
+                            mark = " kept" if s < THRESHOLD else " dropped"
+                            st.text(f"{s:.3f}{mark} {d[:70]}")
                     st.text(shorten(recalled,800) or "nothing")
+                    st.caption("Recent messages I can still see")
+                    recent = st.session_state.messages[-(remember *2):]
+                    if recent:
+                        for m in recent:
+                            st.text(f"{m["role"]}: {shorten(m["content"],80)}")
             load_dotenv()
             client = OpenAI(
                     base_url="https://api.groq.com/openai/v1",
@@ -139,14 +162,17 @@ if user_input:
                     messages.append({"role": m["role"], "content": shorten(m["content"])})
                 messages.append({"role":"user", "content": full_prompt})
 
-
-        r = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                temperature = creativity,
-                messages = messages,
-                )
-        answer = r.choices[0].message.content
-        st.write(answer)
+            if brain.count() > 0 and not good and not recalled and not old_good and notes_only:
+                answer = "I don't have anything about that in your notes"
+                st.write(answer)
+            else:
+                r = client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        temperature = creativity,
+                        messages = messages,
+                        )
+                answer = r.choices[0].message.content
+                st.write(answer)
 
         remember_exchange(prompt, answer)
     st.session_state.messages.append({"role":"assistant","content":answer})
